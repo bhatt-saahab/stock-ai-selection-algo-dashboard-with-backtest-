@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Daily Stock Blocks</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+
+  <style>
+    :root {
+      --bg:           #0a0f17;
+      --bg-card:      #111827;
+      --text:         #e2e8f0;
+      --text-dim:     #94a3b8;
+      --grid:         rgba(59, 68, 85, 0.35);
+      --accent:       #3b82f6;
+    }
+
+    * { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      min-height: 100vh;
+      padding: 1.5rem 1rem 5rem;
+    }
+
+    .container { max-width: 1600px; margin: 0 auto; }
+
+    header { text-align: center; margin-bottom: 2rem; }
+
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle { color: var(--text-dim); font-size: 1.15rem; font-weight: 500; }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.4rem;
+      justify-content: center;
+      margin: 1.8rem 0 2.8rem;
+      font-size: 1rem;
+      color: var(--text-dim);
+    }
+
+    .legend-item { display: flex; align-items: center; gap: 0.6rem; }
+
+    .legend-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+    }
+
+    #chart-container {
+      background: var(--bg-card);
+      border-radius: 16px;
+      box-shadow: 0 12px 50px -15px rgba(0,0,0,0.8);
+      overflow: hidden;
+      padding: 1.8rem 1.2rem 3rem;
+      margin-bottom: 3rem;
+    }
+
+    #chart { width: 100%; height: 780px; }
+
+    footer {
+      text-align: center;
+      margin-top: 4rem;
+      color: #64748b;
+      font-size: 0.95rem;
+      opacity: 0.9;
+    }
+
+    code {
+      background: #1e293b;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      font-family: 'Consolas', monospace;
+    }
+
+    .error-msg {
+      text-align: center;
+      color: #f87171;
+      margin: 3rem 0;
+      font-size: 1.1rem;
+    }
+
+    #strike-summary-section {
+      margin-top: 3.5rem;
+      background: #111827;
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 10px 30px -10px rgba(0,0,0,0.6);
+    }
+
+    #strike-table-container {
+      max-height: 320px;
+      overflow-y: auto;
+      margin: 1rem 0;
+    }
+
+    #strike-table th, #strike-table td {
+      padding: 10px;
+      border: 1px solid #334155;
+      text-align: center;
+    }
+
+    #strike-table th {
+      position: sticky;
+      top: 0;
+      background: #1e293b;
+      z-index: 1;
+    }
+
+    @media (max-width: 1024px) { #chart { height: 680px; } }
+    @media (max-width: 768px) {
+      h1 { font-size: 2rem; }
+      #chart { height: 620px; }
+      .legend { gap: 1rem; font-size: 0.95rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <header>
+    <h1>Daily Stock Blocks</h1>
+    <p class="subtitle">(Click any block to view stock details)</p>
+  </header>
+
+  <div class="legend" id="dynamic-legend"></div>
+
+  <div id="chart-container">
+    <div id="chart"></div>
+  </div>
+
+  <!-- Strike Rate Summary Section -->
+  <div id="strike-summary-section">
+    <h2 style="text-align: center; color: #94a3b8; margin-bottom: 1.5rem; font-size: 1.4rem;">
+      Rating Strike Rate (Before vs After)
+    </h2>
+    
+    <div id="overall-strike" style="text-align: center; font-size: 2.8rem; font-weight: 700; margin-bottom: 1.5rem;">
+      Loading...
+    </div>
+    
+    <div id="strike-table-container">
+      <table id="strike-table" style="width:100%; border-collapse: collapse; font-size: 0.95rem;">
+        <thead>
+          <tr>
+            <th>Stock</th>
+            <th>Rated</th>
+            <th>Correct</th>
+            <th>%</th>
+          </tr>
+        </thead>
+        <tbody id="strike-tbody"></tbody>
+      </table>
+    </div>
+    
+    <p style="text-align: center; color: #64748b; font-size: 0.9rem; margin-top: 1.2rem;">
+      Strike rate = % of cases where Before rating matches After result
+    </p>
+  </div>
+
+  <footer>
+    Update data in <code>daily_stocks.xlsx</code> → save → refresh this page
+  </footer>
+
+</div>
+
+<script>
+fetch('/data')
+  .then(r => r.json())
+  .then(fig => {
+    fig.layout = {
+      ...fig.layout,
+      paper_bgcolor: '#0a0f17',
+      plot_bgcolor: '#111827',
+      margin: { t: 90, b: 120, l: 60, r: 40 },
+      height: 780,
+      xaxis: {
+        ...fig.layout.xaxis,
+        tickangle: -45,
+        tickfont: { size: 13, color: '#cbd5e1' },
+        gridcolor: 'rgba(59,68,85,0.35)',
+        zeroline: false,
+        showline: true,
+        linecolor: 'rgba(59,68,85,0.6)',
+        linewidth: 1.5
+      },
+      yaxis: {
+        ...fig.layout.yaxis,
+        showticklabels: false,
+        gridcolor: 'rgba(59,68,85,0.35)',
+        zeroline: false
+      },
+      legend: {
+        ...fig.layout.legend,
+        bgcolor: 'rgba(30,41,59,0.6)',
+        bordercolor: 'rgba(59,68,85,0.4)',
+        font: { size: 12, color: '#cbd5e1' },
+        orientation: 'h',
+        y: 1.12
+      },
+      title: {
+        text: 'Daily Stock & Sector Blocks',
+        font: { size: 20, color: '#e2e8f0' },
+        x: 0.5,
+        y: 0.98
+      },
+      bargap: 0.08,
+      bargroupgap: 0.05
+    };
+
+    Plotly.newPlot('chart', fig.data, fig.layout, {responsive: true})
+      .then(gd => {
+        gd.on('plotly_click', data => {
+          if (data.points?.[0]?.customdata) {
+            let stock = data.points[0].customdata.trim();
+            if (stock) {
+              window.location.href = `/stock/${encodeURIComponent(stock)}`;
+            }
+          }
+        });
+      });
+
+    // Dynamic legend
+    const legendDiv = document.getElementById('dynamic-legend');
+    legendDiv.innerHTML = '';
+
+    if (fig.legend?.length > 0) {
+      fig.legend.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'legend-item';
+        el.innerHTML = `
+          <div class="legend-dot" style="background:${item.color}"></div>
+          <span>${item.name}</span>
+        `;
+        legendDiv.appendChild(el);
+      });
+    } else {
+      legendDiv.innerHTML = '<span style="color:#64748b;">No sectors found</span>';
+    }
+
+    // Load strike rate summary
+    fetch('/strike-summary')
+      .then(r => r.json())
+      .then(data => {
+        const overallEl = document.getElementById('overall-strike');
+        const tbody = document.getElementById('strike-tbody');
+
+        if (!data.has_data) {
+          overallEl.innerHTML = `<span style="color:#94a3b8; font-size:1.8rem;">${data.message || 'No ratings yet'}</span>`;
+          tbody.innerHTML = '';
+          return;
+        }
+
+        const color = data.overall.pct >= 70 ? '#16a34a' :
+                      data.overall.pct <= 40 ? '#f87171' : '#eab308';
+        overallEl.innerHTML = `<span style="color:${color}">${data.overall.pct}%</span>`;
+        overallEl.title = `${data.overall.correct} correct / ${data.overall.total} rated`;
+
+        tbody.innerHTML = '';
+        data.stocks.forEach(item => {
+          const rowColor = item.pct >= 70 ? '#16a34a' :
+                           item.pct <= 40 ? '#f87171' : '#eab308';
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td style="padding:10px;">
+              <a href="/stock/${encodeURIComponent(item.Stock)}" style="color:#60a5fa; text-decoration:none;">
+                ${item.Stock}
+              </a>
+            </td>
+            <td style="padding:10px; text-align:center;">${item.rated}</td>
+            <td style="padding:10px; text-align:center;">${item.correct}</td>
+            <td style="padding:10px; text-align:center; font-weight:bold; color:${rowColor}">
+              ${item.pct}%
+            </td>
+          `;
+          tbody.appendChild(row);
+        });
+      })
+      .catch(err => {
+        console.error('Strike summary error:', err);
+        document.getElementById('overall-strike').innerHTML = '<span style="color:#f87171;">Error loading</span>';
+      });
+
+  })
+  .catch(err => {
+    console.error('Chart error:', err);
+    document.body.insertAdjacentHTML('beforeend', 
+      '<p class="error-msg">Error loading chart. Check Excel file and console.</p>'
+    );
+  });
+</script>
+
+</body>
+</html>
