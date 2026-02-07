@@ -103,7 +103,6 @@ def get_data():
                     'width': 0.75
                 })
 
-        # Legend - unique sectors with preserved original casing
         legend = []
         seen = set()
         for sector in sorted(df['Sector'].dropna().unique(), key=str.lower):
@@ -357,8 +356,8 @@ def strike_summary():
     try:
         df = pd.read_excel(EXCEL_FILE)
         df['Stock'] = df['Stock'].astype(str).str.strip()
-        df['Rating_Before'] = df['Rating_Before'].astype(str).str.strip()
-        df['Rating_After'] = df['Rating_After'].astype(str).str.strip()
+        df['Rating_Before'] = df['Rating_Before'].astype(str).str.strip().replace('nan', '')
+        df['Rating_After']  = df['Rating_After'].astype(str).str.strip().replace('nan', '')
 
         valid = df[
             df['Rating_Before'].isin(['Buy', 'Sell', 'Not']) &
@@ -368,22 +367,60 @@ def strike_summary():
         if valid.empty:
             return jsonify({"has_data": False, "message": "No rated entries yet"})
 
-        total_count = len(valid)
-        total_correct = (valid['Rating_Before'] == valid['Rating_After']).sum()
-        overall_pct = round(total_correct / total_count * 100, 1) if total_count > 0 else 0
+        # Buying Strike Rate
+        buy_calls = valid[valid['Rating_Before'] == 'Buy']
+        buy_decided = buy_calls[buy_calls['Rating_After'].isin(['Buy', 'Sell'])]
+        buy_total_decided = len(buy_decided)
+        buy_correct = len(buy_decided[buy_decided['Rating_After'] == 'Buy'])
+        buy_strike_pct = round(buy_correct / buy_total_decided * 100, 1) if buy_total_decided > 0 else 0
 
+        # Selling Strike Rate
+        sell_calls = valid[valid['Rating_Before'] == 'Sell']
+        sell_decided = sell_calls[sell_calls['Rating_After'].isin(['Buy', 'Sell'])]
+        sell_total_decided = len(sell_decided)
+        sell_correct = len(sell_decided[sell_decided['Rating_After'] == 'Sell'])
+        sell_strike_pct = round(sell_correct / sell_total_decided * 100, 1) if sell_total_decided > 0 else 0
+
+        # Exceptional (Not → Not + Buy/Sell → Not)
+        exceptional_calls = valid[
+            (valid['Rating_Before'] == 'Not') |
+            (valid['Rating_Before'].isin(['Buy', 'Sell']) & (valid['Rating_After'] == 'Not'))
+        ]
+        exceptional_total = len(exceptional_calls)
+        exceptional_correct = len(exceptional_calls[
+            ((exceptional_calls['Rating_Before'] == 'Not') & (exceptional_calls['Rating_After'] == 'Not')) |
+            (exceptional_calls['Rating_Before'].isin(['Buy', 'Sell']) & (exceptional_calls['Rating_After'] == 'Not'))
+        ])
+        exceptional_pct = round(exceptional_correct / exceptional_total * 100, 1) if exceptional_total > 0 else 0
+
+        # Per-stock match percentage (Before == After)
         per_stock = valid.groupby('Stock').agg(
             rated=('Stock', 'size'),
             correct=('Rating_Before', lambda x: (x == valid.loc[x.index, 'Rating_After']).sum())
         ).reset_index()
-
         per_stock['pct'] = (per_stock['correct'] / per_stock['rated'] * 100).round(1)
         per_stock = per_stock.sort_values('pct', ascending=False)
 
         return jsonify({
             "has_data": True,
-            "overall": {"pct": overall_pct, "correct": int(total_correct), "total": int(total_count)},
-            "stocks": per_stock.to_dict(orient='records')[:25]  # limit shown stocks
+            "buy_strike": {
+                "pct": buy_strike_pct,
+                "correct": buy_correct,
+                "decided": buy_total_decided,
+                "total_buy_calls": len(buy_calls)
+            },
+            "sell_strike": {
+                "pct": sell_strike_pct,
+                "correct": sell_correct,
+                "decided": sell_total_decided,
+                "total_sell_calls": len(sell_calls)
+            },
+            "exceptional": {
+                "pct": exceptional_pct,
+                "correct": exceptional_correct,
+                "total": exceptional_total
+            },
+            "stocks": per_stock.to_dict(orient='records')[:30]
         })
 
     except Exception as e:
