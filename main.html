@@ -104,14 +104,38 @@
       box-shadow: 0 10px 30px -10px rgba(0,0,0,0.6);
     }
 
+    .strike-metrics {
+      display: flex;
+      justify-content: center;
+      gap: 2.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 2rem;
+    }
+
+    .strike-card {
+      text-align: center;
+      min-width: 180px;
+    }
+
+    .strike-card h4 {
+      color: #94a3b8;
+      font-size: 1.1rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .strike-pct {
+      font-size: 2.6rem;
+      font-weight: 700;
+    }
+
     #strike-table-container {
-      max-height: 320px;
+      max-height: 340px;
       overflow-y: auto;
       margin: 1rem 0;
     }
 
     #strike-table th, #strike-table td {
-      padding: 10px;
+      padding: 10px 12px;
       border: 1px solid #334155;
       text-align: center;
     }
@@ -128,6 +152,8 @@
       h1 { font-size: 2rem; }
       #chart { height: 620px; }
       .legend { gap: 1rem; font-size: 0.95rem; }
+      .strike-metrics { gap: 1.5rem; }
+      .strike-pct { font-size: 2.2rem; }
     }
   </style>
 </head>
@@ -146,32 +172,31 @@
     <div id="chart"></div>
   </div>
 
-  <!-- Strike Rate Summary Section -->
+  <!-- Strike Rate Summary -->
   <div id="strike-summary-section">
-    <h2 style="text-align: center; color: #94a3b8; margin-bottom: 1.5rem; font-size: 1.4rem;">
-      Rating Strike Rate (Before vs After)
+    <h2 style="text-align: center; color: #94a3b8; margin-bottom: 1.8rem; font-size: 1.45rem;">
+      Rating Performance Summary
     </h2>
-    
-    <div id="overall-strike" style="text-align: center; font-size: 2.8rem; font-weight: 700; margin-bottom: 1.5rem;">
-      Loading...
-    </div>
-    
+
+    <div id="strike-metrics-container"></div>
+
     <div id="strike-table-container">
-      <table id="strike-table" style="width:100%; border-collapse: collapse; font-size: 0.95rem;">
+      <table id="strike-table" style="width:100%; border-collapse: collapse; font-size: 0.98rem;">
         <thead>
           <tr>
             <th>Stock</th>
             <th>Rated</th>
             <th>Correct</th>
-            <th>%</th>
+            <th>Match %</th>
           </tr>
         </thead>
         <tbody id="strike-tbody"></tbody>
       </table>
     </div>
-    
-    <p style="text-align: center; color: #64748b; font-size: 0.9rem; margin-top: 1.2rem;">
-      Strike rate = % of cases where Before rating matches After result
+
+    <p style="text-align: center; color: #64748b; font-size: 0.9rem; margin-top: 1.4rem;">
+      Buying / Selling strike rates ignore "Not" outcomes<br>
+      Exceptional includes correct "Not" predictions + directional calls that ended neutral
     </p>
   </div>
 
@@ -255,47 +280,73 @@ fetch('/data')
       legendDiv.innerHTML = '<span style="color:#64748b;">No sectors found</span>';
     }
 
-    // Load strike rate summary
+    // Load strike summary
     fetch('/strike-summary')
       .then(r => r.json())
       .then(data => {
-        const overallEl = document.getElementById('overall-strike');
+        const metricsContainer = document.getElementById('strike-metrics-container');
         const tbody = document.getElementById('strike-tbody');
 
         if (!data.has_data) {
-          overallEl.innerHTML = `<span style="color:#94a3b8; font-size:1.8rem;">${data.message || 'No ratings yet'}</span>`;
+          metricsContainer.innerHTML = `<p style="text-align:center; color:#94a3b8; font-size:1.3rem;">${data.message || 'No ratings yet'}</p>`;
           tbody.innerHTML = '';
           return;
         }
 
-        const color = data.overall.pct >= 70 ? '#16a34a' :
-                      data.overall.pct <= 40 ? '#f87171' : '#eab308';
-        overallEl.innerHTML = `<span style="color:${color}">${data.overall.pct}%</span>`;
-        overallEl.title = `${data.overall.correct} correct / ${data.overall.total} rated`;
+        const getColor = pct => pct >= 70 ? '#16a34a' : pct <= 40 ? '#f87171' : '#eab308';
+
+        metricsContainer.innerHTML = `
+          <div class="strike-metrics">
+            <div class="strike-card">
+              <h4>Buying Strike Rate</h4>
+              <div class="strike-pct" style="color:${getColor(data.buy_strike.pct)}">
+                ${data.buy_strike.pct}%
+              </div>
+              <div style="font-size:0.9rem; color:#94a3b8; margin-top:0.4rem;">
+                ${data.buy_strike.correct} / ${data.buy_strike.decided}
+                ${data.buy_strike.total_buy_calls > data.buy_strike.decided ? ` (+${data.buy_strike.total_buy_calls - data.buy_strike.decided} neutral)` : ''}
+              </div>
+            </div>
+
+            <div class="strike-card">
+              <h4>Selling Strike Rate</h4>
+              <div class="strike-pct" style="color:${getColor(data.sell_strike.pct)}">
+                ${data.sell_strike.pct}%
+              </div>
+              <div style="font-size:0.9rem; color:#94a3b8; margin-top:0.4rem;">
+                ${data.sell_strike.correct} / ${data.sell_strike.decided}
+                ${data.sell_strike.total_sell_calls > data.sell_strike.decided ? ` (+${data.sell_strike.total_sell_calls - data.sell_strike.decided} neutral)` : ''}
+              </div>
+            </div>
+
+            <div class="strike-card">
+              <h4>Exceptional</h4>
+              <div class="strike-pct" style="color:${getColor(data.exceptional.pct)}">
+                ${data.exceptional.pct}%
+              </div>
+              <div style="font-size:0.9rem; color:#94a3b8; margin-top:0.4rem;">
+                ${data.exceptional.correct} / ${data.exceptional.total}
+              </div>
+            </div>
+          </div>
+        `;
 
         tbody.innerHTML = '';
         data.stocks.forEach(item => {
-          const rowColor = item.pct >= 70 ? '#16a34a' :
-                           item.pct <= 40 ? '#f87171' : '#eab308';
-          const row = document.createElement('tr');
-          row.innerHTML = `
-            <td style="padding:10px;">
-              <a href="/stock/${encodeURIComponent(item.Stock)}" style="color:#60a5fa; text-decoration:none;">
-                ${item.Stock}
-              </a>
-            </td>
-            <td style="padding:10px; text-align:center;">${item.rated}</td>
-            <td style="padding:10px; text-align:center;">${item.correct}</td>
-            <td style="padding:10px; text-align:center; font-weight:bold; color:${rowColor}">
-              ${item.pct}%
-            </td>
+          const rowColor = item.pct >= 70 ? '#16a34a' : item.pct <= 40 ? '#f87171' : '#eab308';
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><a href="/stock/${encodeURIComponent(item.Stock)}" style="color:#60a5fa; text-decoration:none;">${item.Stock}</a></td>
+            <td>${item.rated}</td>
+            <td>${item.correct}</td>
+            <td style="font-weight:bold; color:${rowColor}">${item.pct}%</td>
           `;
-          tbody.appendChild(row);
+          tbody.appendChild(tr);
         });
       })
       .catch(err => {
-        console.error('Strike summary error:', err);
-        document.getElementById('overall-strike').innerHTML = '<span style="color:#f87171;">Error loading</span>';
+        console.error(err);
+        document.getElementById('strike-metrics-container').innerHTML = '<p style="color:#f87171; text-align:center;">Error loading performance data</p>';
       });
 
   })
